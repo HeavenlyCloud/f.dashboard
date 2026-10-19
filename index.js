@@ -13,6 +13,13 @@ const client = new line.messagingApi.MessagingApiClient({
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
 });
 
+let googleKey;
+if (process.env.GOOGLE_CREDENTIALS_JSON) {
+  googleKey = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+} else {
+  googleKey = require('./google-credentials.json');
+}
+
 const serviceAccountAuth = new JWT({
   email: require('./google-credentials.json').client_email,
   key: require('./google-credentials.json').private_key,
