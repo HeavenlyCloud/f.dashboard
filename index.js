@@ -21,12 +21,16 @@ if (process.env.GOOGLE_CREDENTIALS_JSON) {
 }
 
 const serviceAccountAuth = new JWT({
-  email: require('./google-credentials.json').client_email,
-  key: require('./google-credentials.json').private_key,
+  email: googleKey.client_email,
+  key: googleKey.private_key,
   scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 
 const app = express();
+
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
 
 app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
   try {
