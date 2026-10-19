@@ -8,6 +8,7 @@
 !package.json
 !package-lock.json
 !tsconfig.json
+google-credentials.json
 
 # Dependencies
 node_modules/
