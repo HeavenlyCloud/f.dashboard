@@ -47,7 +47,7 @@ app.post('/webhook', line.middleware(lineConfig), (req, res) => {
   res.status(200).end();
 
   Promise.all(req.body.events.map(handleEvent)).catch((err) => {
-    console.error('Error handling webhook event in background:', err);
+    console.error('Error processing webhook event in background:', err);
   });
 });
 
@@ -56,6 +56,7 @@ async function handleEvent(event) {
     return null;
   }
 
+  const userId = event.source.userId || 'Unknown';
   const text = event.message.text.trim();
   const match = text.match(/^(\d+)\s+(.+)$/);
 
@@ -90,6 +91,7 @@ async function handleEvent(event) {
       const sheet = await getSheet();
       await sheet.addRow({
         Date: today,
+        User: userId,
         Amount: amount,
         Category: 'Uncategorized',
         Description: note,
@@ -97,7 +99,7 @@ async function handleEvent(event) {
         Status: 'manual_unverified',
       });
     } catch (err) {
-      console.error('Failed to log expense in background:', err);
+      console.error('Failed writing to Google Sheet:', err);
     }
   })();
 
