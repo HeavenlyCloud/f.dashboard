@@ -44,7 +44,6 @@ app.get('/health', (req, res) => {
 });
 
 app.post('/webhook', line.middleware(lineConfig), (req, res) => {
-  // Acknowledge LINE immediately with 200 OK so LINE never thinks the request timed out
   res.status(200).end();
 
   Promise.all(req.body.events.map(handleEvent)).catch((err) => {
@@ -76,31 +75,34 @@ async function handleEvent(event) {
   const note = match[2];
   const today = new Date().toISOString().split('T')[0];
 
-  try {
-    const sheet = await getSheet();
+  const replyPromise = client.replyMessage({
+    replyToken: event.replyToken,
+    messages: [
+      {
+        type: 'text',
+        text: `Logged: $${amount} TWD for "${note}"`,
+      },
+    ],
+  });
 
-    await Promise.all([
-      sheet.addRow({
+  const sheetPromise = (async () => {
+    try {
+      const sheet = await getSheet();
+      await sheet.addRow({
         Date: today,
         Amount: amount,
         Category: 'Uncategorized',
         Description: note,
         Source: 'Manual',
         Status: 'manual_unverified',
-      }),
-      client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [
-          {
-            type: 'text',
-            text: `Logged: $${amount} TWD for "${note}"`,
-          },
-        ],
-      }),
-    ]);
-  } catch (err) {
-    console.error('Failed to log expense:', err);
-  }
+      });
+    } catch (err) {
+      console.error('Failed to log expense in background:', err);
+    }
+  })();
+
+  await replyPromise;
+  await sheetPromise;
 }
 
 const PORT = process.env.PORT || 3000;
