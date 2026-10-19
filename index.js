@@ -27,14 +27,14 @@ const serviceAccountAuth = new JWT({
 });
 
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, serviceAccountAuth);
-let isDocLoaded = false;
+let sheetInstance = null;
 
-async function getTransactionsSheet() {
-  if (!isDocLoaded) {
+async function getSheet() {
+  if (!sheetInstance) {
     await doc.loadInfo();
-    isDocLoaded = true;
+    sheetInstance = doc.sheetsByTitle['Transactions'];
   }
-  return doc.sheetsByTitle['Transactions'];
+  return sheetInstance;
 }
 
 const app = express();
@@ -44,6 +44,7 @@ app.get('/health', (req, res) => {
 });
 
 app.post('/webhook', line.middleware(lineConfig), (req, res) => {
+  // Acknowledge LINE immediately with 200 OK so LINE never thinks the request timed out
   res.status(200).end();
 
   Promise.all(req.body.events.map(handleEvent)).catch((err) => {
@@ -53,7 +54,7 @@ app.post('/webhook', line.middleware(lineConfig), (req, res) => {
 
 async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') {
-    return Promise.resolve(null);
+    return null;
   }
 
   const text = event.message.text.trim();
@@ -76,27 +77,29 @@ async function handleEvent(event) {
   const today = new Date().toISOString().split('T')[0];
 
   try {
-    const sheet = await getTransactionsSheet();
-    await sheet.addRow({
-      Date: today,
-      Amount: amount,
-      Category: 'Uncategorized',
-      Description: note,
-      Source: 'Manual',
-      Status: 'manual_unverified',
-    });
+    const sheet = await getSheet();
 
-    return client.replyMessage({
-      replyToken: event.replyToken,
-      messages: [
-        {
-          type: 'text',
-          text: `Logged: $${amount} TWD for "${note}"`,
-        },
-      ],
-    });
+    await Promise.all([
+      sheet.addRow({
+        Date: today,
+        Amount: amount,
+        Category: 'Uncategorized',
+        Description: note,
+        Source: 'Manual',
+        Status: 'manual_unverified',
+      }),
+      client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [
+          {
+            type: 'text',
+            text: `Logged: $${amount} TWD for "${note}"`,
+          },
+        ],
+      }),
+    ]);
   } catch (err) {
-    console.error('Failed to write to Google Sheets:', err);
+    console.error('Failed to log expense:', err);
   }
 }
 
