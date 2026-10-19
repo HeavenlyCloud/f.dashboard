@@ -26,20 +26,29 @@ const serviceAccountAuth = new JWT({
   scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 
+const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, serviceAccountAuth);
+let isDocLoaded = false;
+
+async function getTransactionsSheet() {
+  if (!isDocLoaded) {
+    await doc.loadInfo();
+    isDocLoaded = true;
+  }
+  return doc.sheetsByTitle['Transactions'];
+}
+
 const app = express();
 
 app.get('/health', (req, res) => {
   res.status(200).send('OK');
 });
 
-app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
-  try {
-    const results = await Promise.all(req.body.events.map(handleEvent));
-    res.json(results);
-  } catch (err) {
-    console.error('Error handling webhook event:', err);
-    res.status(500).end();
-  }
+app.post('/webhook', line.middleware(lineConfig), (req, res) => {
+  res.status(200).end();
+
+  Promise.all(req.body.events.map(handleEvent)).catch((err) => {
+    console.error('Error handling webhook event in background:', err);
+  });
 });
 
 async function handleEvent(event) {
@@ -66,28 +75,29 @@ async function handleEvent(event) {
   const note = match[2];
   const today = new Date().toISOString().split('T')[0];
 
-  const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, serviceAccountAuth);
-  await doc.loadInfo();
-  const sheet = doc.sheetsByTitle['Transactions'];
+  try {
+    const sheet = await getTransactionsSheet();
+    await sheet.addRow({
+      Date: today,
+      Amount: amount,
+      Category: 'Uncategorized',
+      Description: note,
+      Source: 'Manual',
+      Status: 'manual_unverified',
+    });
 
-  await sheet.addRow({
-    Date: today,
-    Amount: amount,
-    Category: 'Uncategorized',
-    Description: note,
-    Source: 'Manual',
-    Status: 'manual_unverified',
-  });
-
-  return client.replyMessage({
-    replyToken: event.replyToken,
-    messages: [
-      {
-        type: 'text',
-        text: `Logged: $${amount} TWD for "${note}"`,
-      },
-    ],
-  });
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [
+        {
+          type: 'text',
+          text: `Logged: $${amount} TWD for "${note}"`,
+        },
+      ],
+    });
+  } catch (err) {
+    console.error('Failed to write to Google Sheets:', err);
+  }
 }
 
 const PORT = process.env.PORT || 3000;
