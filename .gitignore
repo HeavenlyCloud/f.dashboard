@@ -1,0 +1,44 @@
+# Environment & Secret Files (CRITICAL: Never commit secrets)
+.env
+.env.local
+.env.*.local
+
+# Google Service Account Credentials & Private Keys
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+
+# Dependencies
+node_modules/
+jspm_packages/
+
+# Production / Build Outputs
+dist/
+build/
+out/
+.next/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# IDE & Editor Configurations
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
