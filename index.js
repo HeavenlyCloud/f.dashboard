@@ -27,14 +27,31 @@ const serviceAccountAuth = new JWT({
 });
 
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, serviceAccountAuth);
-let sheetInstance = null;
+let transactionsSheet = null;
+let subscriptionSheet = null;
 
-async function getSheet() {
-  if (!sheetInstance) {
+async function getTransactionsSheet() {
+  if (!transactionsSheet) {
     await doc.loadInfo();
-    sheetInstance = doc.sheetsByTitle['Transactions'];
+    transactionsSheet = doc.sheetsByTitle['Transactions'];
   }
-  return sheetInstance;
+  return transactionsSheet;
+}
+
+async function getSubscriptionSheet() {
+  if (!subscriptionSheet) {
+    await doc.loadInfo();
+    subscriptionSheet = doc.sheetsByTitle['Subscriptions'];
+  }
+  return subscriptionSheet;
+}
+
+const KNOWN_USERS = {};
+
+function getSanitizedUserName(userId) {
+  if (!userId || userId === 'Unknown') return 'Guest';
+  if (KNOWN_USERS[userId]) return KNOWN_USERS[userId];
+  return `User_${userId.slice(-4)}`;
 }
 
 const grocerySessions = {};
@@ -43,6 +60,52 @@ const app = express();
 
 app.get('/health', (req, res) => {
   res.status(200).send('OK');
+});
+
+app.get('/check-subscriptions', async (req, res) => {
+  try {
+    const sheet = await getSubscriptionSheet();
+    const rows = await sheet.getRows();
+    const today = new Date();
+
+    const upcomingAlerts = [];
+
+    rows.forEach((row) => {
+      const name = row.get('Name');
+      const renewalDateStr = row.get('Next Renewal Date');
+      const status = row.get('Status');
+      const currency = row.get('Currency') || 'TWD';
+      const origAmount = row.get('Original Amount');
+      const twdAmount = row.get('Amount (TWD)');
+
+      if (status === 'Active' && renewalDateStr) {
+        const renewalDate = new Date(renewalDateStr);
+        const diffTime = renewalDate - today;
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        if (diffDays === 3) {
+          upcomingAlerts.push(
+            `🔔 Subscription Renewal in 3 Days!\n` +
+            `• Service: ${name}\n` +
+            `• Cost: ${origAmount} ${currency} (~$${Math.round(twdAmount || 0)} TWD)\n` +
+            `• Date: ${renewalDateStr}`
+          );
+        }
+      }
+    });
+
+    if (upcomingAlerts.length > 0 && process.env.USER_LINE_ID) {
+      await client.pushMessage({
+        to: process.env.USER_LINE_ID,
+        messages: [{ type: 'text', text: upcomingAlerts.join('\n\n') }],
+      });
+    }
+
+    res.status(200).send({ status: 'Checked', alertsSent: upcomingAlerts.length });
+  } catch (err) {
+    console.error('Failed checking subscription renewals:', err);
+    res.status(500).send({ error: err.message });
+  }
 });
 
 app.post('/webhook', line.middleware(lineConfig), (req, res) => {
@@ -58,12 +121,13 @@ async function handleEvent(event) {
     return null;
   }
 
-  const userId = event.source.userId || 'Unknown';
+  const rawUserId = event.source.userId || 'Unknown';
+  const userName = getSanitizedUserName(rawUserId);
   const text = event.message.text.trim();
   const lowerText = text.toLowerCase();
 
   if (lowerText === 'start glist') {
-    grocerySessions[userId] = {
+    grocerySessions[rawUserId] = {
       items: [],
       active: true,
       startTime: new Date(),
@@ -74,17 +138,15 @@ async function handleEvent(event) {
       messages: [
         {
           type: 'text',
-          text: `🛒 Grocery List session started!\n\nAdd items like:\n"120 apples"\n"85 milk"\n\nCommands:\n• "partial total" - view current cart\n• "remove apples" / "del apples"\n• "undo" / "pop" - remove last item\n• "total" / "end glist" - save and complete`,
+          text: `🛒 Grocery List session started!\n\nAdd items like:\n"120 apples"\n"85 milk"\n\nCommands:\n• "partial total" - view current cart\n• "remove apples"\n• "undo" / "pop" - remove last item\n• "total" / "end glist" - save and complete`,
         },
       ],
     });
   }
 
-
-  const session = grocerySessions[userId];
+  const session = grocerySessions[rawUserId];
 
   if (session && session.active) {
-
     if (lowerText === 'partial total') {
       const currentTotal = session.items.reduce((sum, item) => sum + item.amount, 0);
       const listText = session.items.length > 0
@@ -159,7 +221,7 @@ async function handleEvent(event) {
       const finalTotal = session.items.reduce((sum, item) => sum + item.amount, 0);
 
       if (session.items.length === 0) {
-        delete grocerySessions[userId];
+        delete grocerySessions[rawUserId];
         return client.replyMessage({
           replyToken: event.replyToken,
           messages: [{ type: 'text', text: '🛒 Grocery list ended (0 items logged).' }],
@@ -181,10 +243,10 @@ async function handleEvent(event) {
 
       const sheetPromise = (async () => {
         try {
-          const sheet = await getSheet();
+          const sheet = await getTransactionsSheet();
           await sheet.addRow({
             Date: today,
-            User: userId,
+            User: userName,
             Amount: finalTotal,
             Category: 'Groceries',
             Description: `Grocery Trip: ${summaryNote}`,
@@ -196,7 +258,7 @@ async function handleEvent(event) {
         }
       })();
 
-      delete grocerySessions[userId];
+      delete grocerySessions[rawUserId];
 
       await replyPromise;
       await sheetPromise;
@@ -252,10 +314,10 @@ async function handleEvent(event) {
 
   const sheetPromise = (async () => {
     try {
-      const sheet = await getSheet();
+      const sheet = await getTransactionsSheet();
       await sheet.addRow({
         Date: today,
-        User: userId,
+        User: userName,
         Amount: amount,
         Category: 'Uncategorized',
         Description: note,
