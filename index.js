@@ -43,7 +43,7 @@ async function getUserOrMainSheet(sheetName = 'Transactions') {
   if (!sheet) {
     sheet = await doc.addSheet({
       title: sheetName,
-      headerValues: sheetName === 'Cart' 
+      headerValues: sheetName === 'Cart'
         ? ['Date', 'User', 'Item', 'Amount', 'Currency']
         : ['Date', 'User', 'Amount', 'Currency', 'Amount (Base)', 'Category', 'Description', 'Source', 'Status']
     });
@@ -182,35 +182,35 @@ function createCartFlexCard(cartItems, runningTotal, userName, isFinal = false) 
 
   const footerButtons = isFinal
     ? [
-        {
-          type: 'button',
-          style: 'primary',
-          color: '#1DB954',
-          height: 'sm',
-          action: { type: 'message', label: '🛒 New Grocery Trip', text: 'start glist' }
-        }
-      ]
+      {
+        type: 'button',
+        style: 'primary',
+        color: '#1DB954',
+        height: 'sm',
+        action: { type: 'message', label: '🛒 New Grocery Trip', text: 'start glist' }
+      }
+    ]
     : [
-        {
-          type: 'button',
-          style: 'secondary',
-          height: 'sm',
-          action: { type: 'message', label: '📊 View Cart', text: 'partial total' }
-        },
-        {
-          type: 'button',
-          style: 'secondary',
-          height: 'sm',
-          action: { type: 'message', label: '↩️ Undo', text: 'undo' }
-        },
-        {
-          type: 'button',
-          style: 'primary',
-          color: '#1DB954',
-          height: 'sm',
-          action: { type: 'message', label: '✅ Finish Trip', text: 'end glist' }
-        }
-      ];
+      {
+        type: 'button',
+        style: 'secondary',
+        height: 'sm',
+        action: { type: 'message', label: '📊 View Cart', text: 'partial total' }
+      },
+      {
+        type: 'button',
+        style: 'secondary',
+        height: 'sm',
+        action: { type: 'message', label: '↩️ Undo', text: 'undo' }
+      },
+      {
+        type: 'button',
+        style: 'primary',
+        color: '#1DB954',
+        height: 'sm',
+        action: { type: 'message', label: '✅ Finish Trip', text: 'end glist' }
+      }
+    ];
 
   return {
     type: 'flex',
@@ -529,9 +529,9 @@ async function handleEvent(event) {
     const origAmount = parseFloat(subMatch[3]);
     const renewalDate = subMatch[4];
 
-    const fxFormula = currency === DEFAULT_BASE_CURRENCY 
-      ? origAmount 
-      : `=D${2}*GOOGLEFINANCE("CURRENCY:${currency}${DEFAULT_BASE_CURRENCY}")`;
+    const fxFormula = currency === DEFAULT_BASE_CURRENCY
+      ? origAmount
+      : `=D${sheet.rowCount + 1}*GOOGLEFINANCE("CURRENCY:${currency}${DEFAULT_BASE_CURRENCY}")`;
 
     const flexCard = createReceiptFlexCard('Subscription Added', origAmount, currency, `${name} (Next: ${renewalDate})`, userName, 'Subscriptions');
 
@@ -644,15 +644,15 @@ async function handleEvent(event) {
           });
 
           const cartSheet = await getUserOrMainSheet('Cart');
-          for (const item of session.items) {
-            await cartSheet.addRow({
-              Date: today,
-              User: userName,
-              Item: item.note,
-              Amount: item.amount,
-              Currency: DEFAULT_BASE_CURRENCY
-            });
-          }
+          const cartRows = session.items.map(item => ({
+            Date: today,
+            User: userName,
+            Item: item.note,
+            Amount: item.amount,
+            Currency: DEFAULT_BASE_CURRENCY
+          }));
+          await cartSheet.addRows(cartRows);
+          
         } catch (err) {
           console.error('Failed to log grocery trip to Google Sheets:', err);
         }
@@ -702,8 +702,8 @@ async function handleEvent(event) {
 
   const category = categorizeExpense(note);
   const today = new Date().toISOString().split('T')[0];
-  const fxFormula = currency === DEFAULT_BASE_CURRENCY 
-    ? amount 
+  const fxFormula = currency === DEFAULT_BASE_CURRENCY
+    ? amount
     : `=C${2}*GOOGLEFINANCE("CURRENCY:${currency}${DEFAULT_BASE_CURRENCY}")`;
 
   const flexCard = createReceiptFlexCard('Expense Logged', amount, currency, note, userName, category);
