@@ -43,7 +43,9 @@ async function getUserOrMainSheet(sheetName = 'Transactions') {
   if (!sheet) {
     sheet = await doc.addSheet({
       title: sheetName,
-      headerValues: ['Date', 'User', 'Amount', 'Currency', 'Amount (Base)', 'Category', 'Description', 'Source', 'Status']
+      headerValues: sheetName === 'Cart' 
+        ? ['Date', 'User', 'Item', 'Amount', 'Currency']
+        : ['Date', 'User', 'Amount', 'Currency', 'Amount (Base)', 'Category', 'Description', 'Source', 'Status']
     });
   }
   return sheet;
@@ -52,6 +54,26 @@ async function getUserOrMainSheet(sheetName = 'Transactions') {
 async function getSubscriptionSheet() {
   await ensureDocLoaded();
   return doc.sheetsByTitle['Subscriptions'];
+}
+
+function categorizeExpense(note) {
+  const lower = note.toLowerCase();
+  const rules = [
+    { category: 'Food & Dining', keywords: ['lunch', 'dinner', 'breakfast', 'ramen', 'coffee', 'tea', 'food', 'night market', 'boba', 'restaurant', 'meal', 'cafe'] },
+    { category: 'Groceries', keywords: ['supermarket', 'market', 'apples', 'milk', 'fruit', 'vegetables', 'meat', 'eggs', 'carrefour', 'pxmart', 'grocery'] },
+    { category: 'Transportation', keywords: ['uber', 'taxi', 'mrt', 'train', 'bus', 'flight', 'gas', 'petrol', 'parking', 'metro'] },
+    { category: 'Entertainment', keywords: ['movie', 'game', 'steam', 'concert', 'spotify', 'netflix', 'youtube', 'cinema'] },
+    { category: 'Shopping', keywords: ['clothes', 'shoes', 'amazon', 'electronics', 'books', 'store'] },
+    { category: 'Utilities & Bills', keywords: ['water', 'electricity', 'rent', 'internet', 'phone', 'bill', 'icloud', 'aws'] }
+  ];
+
+  for (const rule of rules) {
+    if (rule.keywords.some((kw) => lower.includes(kw))) {
+      return rule.category;
+    }
+  }
+
+  return 'Uncategorized';
 }
 
 const userNameCache = {};
@@ -123,6 +145,26 @@ function createReceiptFlexCard(title, amount, currency, note, user, category = '
             ]
           }
         ]
+      },
+      footer: {
+        type: 'box',
+        layout: 'horizontal',
+        spacing: 'sm',
+        contents: [
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: { type: 'message', label: '🛒 Start Grocery', text: 'start glist' }
+          },
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#1DB954',
+            height: 'sm',
+            action: { type: 'message', label: '📊 Summary', text: 'summary' }
+          }
+        ]
       }
     }
   };
@@ -138,50 +180,254 @@ function createCartFlexCard(cartItems, runningTotal, userName, isFinal = false) 
     ]
   }));
 
-  const contents = {
-    type: 'bubble',
-    styles: { header: { backgroundColor: isFinal ? '#1DB954' : '#2D3748' } },
-    header: {
-      type: 'box',
-      layout: 'vertical',
-      contents: [
-        { type: 'text', text: `HeavenlyCloud 雲雲 (${userName})`, weight: 'bold', color: '#FFFFFF', size: 'xs' },
-        { type: 'text', text: isFinal ? '🛒 Grocery Summary' : '🛒 Active Grocery Cart', weight: 'bold', color: '#FFFFFF', size: 'lg' }
-      ]
-    },
-    body: {
-      type: 'box',
-      layout: 'vertical',
-      spacing: 'md',
-      contents: itemRows.length > 0 ? itemRows : [{ type: 'text', text: 'Cart is empty.', size: 'sm', color: '#8C8C8C' }]
-    },
-    footer: {
-      type: 'box',
-      layout: 'vertical',
-      contents: [
-        { type: 'separator' },
+  const footerButtons = isFinal
+    ? [
         {
-          type: 'box',
-          layout: 'horizontal',
-          margin: 'md',
-          contents: [
-            { type: 'text', text: 'Total', weight: 'bold', size: 'md' },
-            { type: 'text', text: `$${runningTotal} ${DEFAULT_BASE_CURRENCY}`, weight: 'bold', size: 'lg', align: 'end', color: '#1DB954' }
-          ]
+          type: 'button',
+          style: 'primary',
+          color: '#1DB954',
+          height: 'sm',
+          action: { type: 'message', label: '🛒 New Grocery Trip', text: 'start glist' }
         }
       ]
-    }
-  };
+    : [
+        {
+          type: 'button',
+          style: 'secondary',
+          height: 'sm',
+          action: { type: 'message', label: '📊 View Cart', text: 'partial total' }
+        },
+        {
+          type: 'button',
+          style: 'secondary',
+          height: 'sm',
+          action: { type: 'message', label: '↩️ Undo', text: 'undo' }
+        },
+        {
+          type: 'button',
+          style: 'primary',
+          color: '#1DB954',
+          height: 'sm',
+          action: { type: 'message', label: '✅ Finish Trip', text: 'end glist' }
+        }
+      ];
 
   return {
     type: 'flex',
     altText: `Cart Total: $${runningTotal} ${DEFAULT_BASE_CURRENCY}`,
-    contents: contents
+    contents: {
+      type: 'bubble',
+      styles: { header: { backgroundColor: isFinal ? '#1DB954' : '#2D3748' } },
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          { type: 'text', text: `HeavenlyCloud 雲雲 (${userName})`, weight: 'bold', color: '#FFFFFF', size: 'xs' },
+          { type: 'text', text: isFinal ? '🛒 Grocery Summary' : '🛒 Active Grocery Cart', weight: 'bold', color: '#FFFFFF', size: 'lg' }
+        ]
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'md',
+        contents: [
+          ...(itemRows.length > 0 ? itemRows : [{ type: 'text', text: 'Cart is empty.', size: 'sm', color: '#8C8C8C' }]),
+          { type: 'separator', margin: 'md' },
+          {
+            type: 'box',
+            layout: 'horizontal',
+            margin: 'md',
+            contents: [
+              { type: 'text', text: 'Running Total', weight: 'bold', size: 'md' },
+              { type: 'text', text: `$${runningTotal} ${DEFAULT_BASE_CURRENCY}`, weight: 'bold', size: 'lg', align: 'end', color: '#1DB954' }
+            ]
+          }
+        ]
+      },
+      footer: {
+        type: 'box',
+        layout: 'horizontal',
+        spacing: 'xs',
+        contents: footerButtons
+      }
+    }
+  };
+}
+
+function createCartItemAddedFlexCard(lastItem, runningTotal, cartCount, userName) {
+  return {
+    type: 'flex',
+    altText: `Added ${lastItem.note} ($${lastItem.amount}) - Cart Total: $${runningTotal}`,
+    contents: {
+      type: 'bubble',
+      styles: { header: { backgroundColor: '#2D3748' } },
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          { type: 'text', text: `HeavenlyCloud 雲雲 (${userName})`, weight: 'bold', color: '#FFFFFF', size: 'xs' },
+          { type: 'text', text: '🛒 Item Added to Cart', weight: 'bold', color: '#FFFFFF', size: 'lg' }
+        ]
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'md',
+        contents: [
+          {
+            type: 'box',
+            layout: 'horizontal',
+            contents: [
+              { type: 'text', text: 'Item Added', color: '#8C8C8C', size: 'sm' },
+              { type: 'text', text: lastItem.note, weight: 'bold', align: 'end', size: 'sm', wrap: true }
+            ]
+          },
+          {
+            type: 'box',
+            layout: 'horizontal',
+            contents: [
+              { type: 'text', text: 'Item Cost', color: '#8C8C8C', size: 'sm' },
+              { type: 'text', text: `$${lastItem.amount} ${DEFAULT_BASE_CURRENCY}`, weight: 'bold', align: 'end', size: 'sm' }
+            ]
+          },
+          { type: 'separator' },
+          {
+            type: 'box',
+            layout: 'horizontal',
+            contents: [
+              { type: 'text', text: `Cart (${cartCount} items)`, color: '#8C8C8C', size: 'sm' },
+              { type: 'text', text: `$${runningTotal} ${DEFAULT_BASE_CURRENCY}`, weight: 'bold', align: 'end', size: 'md', color: '#1DB954' }
+            ]
+          }
+        ]
+      },
+      footer: {
+        type: 'box',
+        layout: 'horizontal',
+        spacing: 'xs',
+        contents: [
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: { type: 'message', label: '📊 View Cart', text: 'partial total' }
+          },
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: { type: 'message', label: '↩️ Undo', text: 'undo' }
+          },
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#1DB954',
+            height: 'sm',
+            action: { type: 'message', label: '✅ Finish', text: 'end glist' }
+          }
+        ]
+      }
+    }
+  };
+}
+
+function createSummaryFlexCard(monthStr, totalSpent, categoryTotals) {
+  const rows = Object.entries(categoryTotals).map(([cat, amt]) => ({
+    type: 'box',
+    layout: 'horizontal',
+    contents: [
+      { type: 'text', text: cat, size: 'sm', color: '#555555', flex: 3 },
+      { type: 'text', text: `$${amt} ${DEFAULT_BASE_CURRENCY}`, size: 'sm', align: 'end', weight: 'bold', flex: 2 }
+    ]
+  }));
+
+  return {
+    type: 'flex',
+    altText: `Monthly Summary (${monthStr}): Total $${totalSpent} ${DEFAULT_BASE_CURRENCY}`,
+    contents: {
+      type: 'bubble',
+      styles: { header: { backgroundColor: '#1DB954' } },
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          { type: 'text', text: 'HeavenlyCloud 雲雲', weight: 'bold', color: '#FFFFFF', size: 'xs' },
+          { type: 'text', text: `📊 Spending Report (${monthStr})`, weight: 'bold', color: '#FFFFFF', size: 'lg' }
+        ]
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'md',
+        contents: rows.length > 0 ? rows : [{ type: 'text', text: 'No expenses logged this month.', size: 'sm', color: '#8C8C8C' }]
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          { type: 'separator' },
+          {
+            type: 'box',
+            layout: 'horizontal',
+            margin: 'md',
+            contents: [
+              { type: 'text', text: 'Total Spent', weight: 'bold', size: 'md' },
+              { type: 'text', text: `$${totalSpent} ${DEFAULT_BASE_CURRENCY}`, weight: 'bold', size: 'lg', align: 'end', color: '#1DB954' }
+            ]
+          }
+        ]
+      }
+    }
+  };
+}
+
+function createErrorFlexCard(title, message) {
+  return {
+    type: 'flex',
+    altText: title,
+    contents: {
+      type: 'bubble',
+      styles: { header: { backgroundColor: '#E53E3E' } },
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          { type: 'text', text: 'HeavenlyCloud 雲雲', weight: 'bold', color: '#FFFFFF', size: 'xs' },
+          { type: 'text', text: title, weight: 'bold', color: '#FFFFFF', size: 'lg' }
+        ]
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          { type: 'text', text: message, size: 'sm', color: '#4A5568', wrap: true }
+        ]
+      },
+      footer: {
+        type: 'box',
+        layout: 'horizontal',
+        spacing: 'sm',
+        contents: [
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: { type: 'message', label: '🛒 Start Grocery', text: 'start glist' }
+          },
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#1DB954',
+            height: 'sm',
+            action: { type: 'message', label: '📊 Summary', text: 'summary' }
+          }
+        ]
+      }
+    }
   };
 }
 
 const grocerySessions = {};
-
 const app = express();
 
 app.get('/health', (req, res) => {
@@ -250,6 +496,32 @@ async function handleEvent(event) {
   const text = event.message.text.trim();
   const lowerText = text.toLowerCase();
 
+  if (lowerText === 'summary' || lowerText === 'this month') {
+    try {
+      const sheet = await getUserOrMainSheet('Transactions');
+      const rows = await sheet.getRows();
+      const currentMonth = new Date().toISOString().slice(0, 7);
+
+      let totalSpent = 0;
+      const categoryTotals = {};
+
+      rows.forEach((row) => {
+        const dateStr = row.get('Date');
+        if (dateStr && dateStr.startsWith(currentMonth)) {
+          const amt = parseFloat(row.get('Amount (Base)') || row.get('Amount')) || 0;
+          const category = row.get('Category') || 'Uncategorized';
+          totalSpent += amt;
+          categoryTotals[category] = (categoryTotals[category] || 0) + amt;
+        }
+      });
+
+      const flexCard = createSummaryFlexCard(currentMonth, Math.round(totalSpent), categoryTotals);
+      return client.replyMessage({ replyToken: event.replyToken, messages: [flexCard] });
+    } catch (err) {
+      console.error('Failed generating spending summary:', err);
+    }
+  }
+
   const subMatch = text.match(/^sub\s+add\s+(.+)\s+([A-Za-z]{3})\s+(\d+(?:\.\d+)?)\s+(\d{4}-\d{2}-\d{2})$/i);
   if (subMatch) {
     const name = subMatch[1].trim();
@@ -293,13 +565,11 @@ async function handleEvent(event) {
 
   if (lowerText === 'start glist') {
     grocerySessions[rawUserId] = { items: [], active: true, startTime: new Date() };
+    const flexCard = createCartFlexCard([], 0, userName, false);
 
     return client.replyMessage({
       replyToken: event.replyToken,
-      messages: [{
-        type: 'text',
-        text: `🛒 Grocery list session started for ${userName}!\n\nAdd items like:\n"120 apples"\n"85 milk"\n\nCommands:\n• "partial total" - view current cart\n• "remove apples"\n• "undo" / "pop" - remove last item\n• "total" / "end glist" - save and complete`
-      }]
+      messages: [flexCard]
     });
   }
 
@@ -309,10 +579,7 @@ async function handleEvent(event) {
       const currentTotal = session.items.reduce((sum, item) => sum + item.amount, 0);
       const flexCard = createCartFlexCard(session.items, currentTotal, userName, false);
 
-      return client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [flexCard]
-      });
+      return client.replyMessage({ replyToken: event.replyToken, messages: [flexCard] });
     }
 
     const removeMatch = text.match(/^(?:remove|delete|del)\s+(.+)$/i);
@@ -324,36 +591,26 @@ async function handleEvent(event) {
 
       if (session.items.length < initialLength) {
         const runningTotal = session.items.reduce((sum, item) => sum + item.amount, 0);
-        return client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [{
-            type: 'text',
-            text: `🗑️ Removed "${itemToRemove}" from cart.\n🛒 Running Total: $${runningTotal} ${DEFAULT_BASE_CURRENCY}`
-          }]
-        });
+        const flexCard = createCartFlexCard(session.items, runningTotal, userName, false);
+
+        return client.replyMessage({ replyToken: event.replyToken, messages: [flexCard] });
       } else {
-        return client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [{ type: 'text', text: `⚠️ Item "${itemToRemove}" not found in current cart.` }]
-        });
+        const flexCard = createErrorFlexCard('Item Not Found', `Item "${itemToRemove}" was not found in your active cart.`);
+        return client.replyMessage({ replyToken: event.replyToken, messages: [flexCard] });
       }
     }
 
     if (lowerText === 'undo' || lowerText === 'pop') {
       if (session.items.length === 0) {
-        return client.replyMessage({ replyToken: event.replyToken, messages: [{ type: 'text', text: '🛒 Cart is already empty.' }] });
+        const flexCard = createErrorFlexCard('Cart Empty', 'Your grocery cart is already empty.');
+        return client.replyMessage({ replyToken: event.replyToken, messages: [flexCard] });
       }
 
-      const poppedItem = session.items.pop();
+      session.items.pop();
       const runningTotal = session.items.reduce((sum, item) => sum + item.amount, 0);
+      const flexCard = createCartFlexCard(session.items, runningTotal, userName, false);
 
-      return client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{
-          type: 'text',
-          text: `↩️ Removed last item: "${poppedItem.note}" ($${poppedItem.amount} ${DEFAULT_BASE_CURRENCY}).\n🛒 Running Total: $${runningTotal} ${DEFAULT_BASE_CURRENCY}`
-        }]
-      });
+      return client.replyMessage({ replyToken: event.replyToken, messages: [flexCard] });
     }
 
     if (lowerText === 'total' || lowerText === 'end glist') {
@@ -361,22 +618,20 @@ async function handleEvent(event) {
 
       if (session.items.length === 0) {
         delete grocerySessions[rawUserId];
-        return client.replyMessage({ replyToken: event.replyToken, messages: [{ type: 'text', text: '🛒 Grocery session ended (0 items logged).' }] });
+        const flexCard = createErrorFlexCard('Grocery Session Ended', 'Shopping trip ended with 0 items logged.');
+        return client.replyMessage({ replyToken: event.replyToken, messages: [flexCard] });
       }
 
       const summaryNote = session.items.map((i) => `${i.note} ($${i.amount})`).join(', ');
       const today = new Date().toISOString().split('T')[0];
       const flexCard = createCartFlexCard(session.items, finalTotal, userName, true);
 
-      const replyPromise = client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [flexCard]
-      });
+      const replyPromise = client.replyMessage({ replyToken: event.replyToken, messages: [flexCard] });
 
       const sheetPromise = (async () => {
         try {
-          const sheet = await getUserOrMainSheet('Transactions');
-          await sheet.addRow({
+          const txSheet = await getUserOrMainSheet('Transactions');
+          await txSheet.addRow({
             Date: today,
             User: userName,
             Amount: finalTotal,
@@ -387,8 +642,19 @@ async function handleEvent(event) {
             Source: 'Manual (glist)',
             Status: 'manual_unverified',
           });
+
+          const cartSheet = await getUserOrMainSheet('Cart');
+          for (const item of session.items) {
+            await cartSheet.addRow({
+              Date: today,
+              User: userName,
+              Item: item.note,
+              Amount: item.amount,
+              Currency: DEFAULT_BASE_CURRENCY
+            });
+          }
         } catch (err) {
-          console.error('Failed to write grocery trip to Google Sheets:', err);
+          console.error('Failed to log grocery trip to Google Sheets:', err);
         }
       })();
 
@@ -406,13 +672,9 @@ async function handleEvent(event) {
       session.items.push({ amount, note });
       const runningTotal = session.items.reduce((sum, item) => sum + item.amount, 0);
 
-      return client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{
-          type: 'text',
-          text: `Added: $${amount} ${DEFAULT_BASE_CURRENCY} for "${note}"\n🛒 Cart Total: $${runningTotal} ${DEFAULT_BASE_CURRENCY}`
-        }]
-      });
+      const flexCard = createCartItemAddedFlexCard({ amount, note }, runningTotal, session.items.length, userName);
+
+      return client.replyMessage({ replyToken: event.replyToken, messages: [flexCard] });
     }
   }
 
@@ -431,21 +693,20 @@ async function handleEvent(event) {
     amount = parseFloat(stdMatch[1]);
     note = stdMatch[2];
   } else {
-    return client.replyMessage({
-      replyToken: event.replyToken,
-      messages: [{
-        type: 'text',
-        text: 'Format unrecognized. Send transactions like:\n120 night market\n15.49 USD netflix\n\nOr add subscriptions with:\nsub add Netflix USD 15.49 2026-11-28'
-      }]
-    });
+    const flexCard = createErrorFlexCard(
+      'Format Unrecognized',
+      'Send transactions like:\n• 120 night market\n• 15.49 USD netflix\n\nOr query budget with:\n• summary'
+    );
+    return client.replyMessage({ replyToken: event.replyToken, messages: [flexCard] });
   }
 
+  const category = categorizeExpense(note);
   const today = new Date().toISOString().split('T')[0];
   const fxFormula = currency === DEFAULT_BASE_CURRENCY 
     ? amount 
     : `=C${2}*GOOGLEFINANCE("CURRENCY:${currency}${DEFAULT_BASE_CURRENCY}")`;
 
-  const flexCard = createReceiptFlexCard('Expense Logged', amount, currency, note, userName);
+  const flexCard = createReceiptFlexCard('Expense Logged', amount, currency, note, userName, category);
 
   const replyPromise = client.replyMessage({
     replyToken: event.replyToken,
@@ -461,7 +722,7 @@ async function handleEvent(event) {
         Amount: amount,
         Currency: currency,
         'Amount (Base)': fxFormula,
-        Category: 'Uncategorized',
+        Category: category,
         Description: note,
         Source: 'Manual',
         Status: 'manual_unverified',
